@@ -2,9 +2,13 @@
 
 デスクトップ上で、月のきつねたちが気ままに過ごすWindows用アプリです。ChatGPTを開いていなくても動きます。
 
+**[Windows版ZIPをダウンロード](https://github.com/Noon-R/nmoonfox-desktop/releases/latest/download/nmoonfox-desktop-win-x64.zip)** · **[リリース一覧](https://github.com/Noon-R/nmoonfox-desktop/releases)**
+
+![nmoonfox Desktopの設定画面](https://raw.githubusercontent.com/Noon-R/nmoonfox-desktop/main/docs/settings.png)
+
 ## 起動方法
 
-1. `nmoonfox-desktop-win-x64.zip` を好きなフォルダーへ展開します。
+1. 上のリンクから `nmoonfox-desktop-win-x64.zip` をダウンロードし、好きなフォルダーへ展開します。
 2. `nmoonfox-desktop.exe` をダブルクリックします。
 3. 設定画面で表示数・大きさ・おさんぽの速さを調整してください。
 
