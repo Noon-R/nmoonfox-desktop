@@ -1,0 +1,16 @@
+{
+  "source": "https://github.com/Noon-R/nmoonfox",
+  "character": "nmoonfox",
+  "files": [
+    {
+      "file": "src/Nmoonfox.Desktop/Assets/nmoonfox-sleep.png",
+      "sha256": "0700190ee75c554bd6271bf5a44c853ed437ec3b4434d89243bf9c5cd3244aa0",
+      "bytes": 1865290
+    },
+    {
+      "file": "src/Nmoonfox.Desktop/Assets/nmoonfox-v2.png",
+      "sha256": "693770fdc63a5a8ca71d7e27a9f86505f915eafb1cb2eb5d0d482fa2127d94ec",
+      "bytes": 3552210
+    }
+  ]
+}

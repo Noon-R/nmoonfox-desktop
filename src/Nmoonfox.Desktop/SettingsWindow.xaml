@@ -1,0 +1,45 @@
+<Window x:Class="Nmoonfox.Desktop.SettingsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="nmoonfox — デスクトップの月のきつね" Width="540" Height="840" MinWidth="490" MinHeight="620" Background="#F8F5FD" WindowStartupLocation="CenterScreen">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="28,20,28,24">
+      <Grid Margin="0,0,0,18">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="126"/></Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="DESKTOP COMPANION" FontSize="10" Foreground="{StaticResource Muted}"/>
+          <TextBlock Text="nmoonfox" FontSize="32" FontWeight="SemiBold" Margin="0,2,0,5"/>
+          <TextBlock Text="月のきつねと、のんびり作業時間。" FontSize="13"/>
+          <TextBlock x:Name="PopulationLabel" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,9,0,0"/>
+        </StackPanel>
+        <Image x:Name="Hero" Grid.Column="1" Width="126" Height="136" Stretch="Uniform"/>
+      </Grid>
+      <Border Background="White" CornerRadius="18" Padding="20,17" Margin="0,0,0,12">
+        <StackPanel>
+          <DockPanel><TextBlock Text="いっしょに過ごす数" FontWeight="SemiBold"/><TextBlock x:Name="CountLabel" HorizontalAlignment="Right"/></DockPanel>
+          <Slider x:Name="CountSlider" Minimum="0" Maximum="12" TickFrequency="1" ValueChanged="SliderChanged" AutomationProperties.Name="表示数"/>
+          <TextBlock Text="0匹にしても、ここやトレイから呼び戻せます。" FontSize="11" Foreground="{StaticResource Muted}"/>
+          <DockPanel Margin="0,17,0,0"><TextBlock Text="大きさ" FontWeight="SemiBold"/><TextBlock x:Name="SizeLabel" HorizontalAlignment="Right"/></DockPanel>
+          <Slider x:Name="SizeSlider" Minimum="96" Maximum="240" TickFrequency="8" ValueChanged="SliderChanged" AutomationProperties.Name="大きさ"/>
+          <DockPanel Margin="0,14,0,0"><TextBlock Text="おさんぽの速さ" FontWeight="SemiBold"/><TextBlock x:Name="SpeedLabel" HorizontalAlignment="Right"/></DockPanel>
+          <Slider x:Name="SpeedSlider" Minimum="20" Maximum="140" TickFrequency="5" ValueChanged="SliderChanged" AutomationProperties.Name="移動速度"/>
+        </StackPanel>
+      </Border>
+      <Border Background="White" CornerRadius="18" Padding="20,13" Margin="0,0,0,12">
+        <StackPanel>
+          <CheckBox x:Name="RoamCheck" Content="画面全体をおさんぽ（オフなら画面の下側）" Click="OptionChanged"/>
+          <CheckBox x:Name="TopCheck" Content="ほかのウィンドウより手前に表示" Click="OptionChanged"/>
+          <CheckBox x:Name="ThroughCheck" Content="クリックを通す（作業に集中したいとき）" Click="OptionChanged"/>
+        </StackPanel>
+      </Border>
+      <WrapPanel Margin="0,0,0,10">
+        <Button x:Name="PauseButton" Content="ひとやすみ" Click="PauseClicked"/>
+        <Button Content="みんなでお昼寝" Click="SleepClicked"/>
+        <Button Content="起こす" Click="WakeClicked"/>
+        <Button Content="呼び戻す" Click="GatherClicked" Margin="0,8,0,0"/>
+      </WrapPanel>
+      <Border Background="#EEE8F8" CornerRadius="12" Padding="14,12" Margin="0,0,0,12">
+        <TextBlock Text="マウスを乗せるとなでられてにっこり。&#x0a;ドラッグで移動、右クリックでメニューを開けます。&#x0a;この画面を閉じても、タスクトレイに残ります。" FontSize="12" LineHeight="21" TextWrapping="Wrap"/>
+      </Border>
+      <TextBlock x:Name="StatusLabel" FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+      <DockPanel><TextBlock Text="nmoonfox Desktop 0.1" FontSize="10" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/><Button Content="アプリを終了" Click="ExitClicked" HorizontalAlignment="Right" Margin="0" Padding="12,7"/></DockPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>
