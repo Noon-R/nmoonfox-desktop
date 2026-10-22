@@ -10,6 +10,9 @@
 
 ## Current status (2026-10-23)
 
+- Version 0.2.0 adds default-on persisted YieldToMouse. Fast mouse reversals make nearby awake pets retreat for 6 seconds with temporary click-through. Mouse-button presses, settings interaction, pause, sleep and dragging suppress the feature. Independent Core tests: 19/19; GUI smoke expanded to 18 checks. Real mouse threshold feel remains for user testing.
+- Shake detector uses monotonic DIP samples with short turning-point pauses allowed. Never replace this with speed-only detection; ordinary pointer travel must not trigger it. At boxed-in corners, choose a path with good cursor clearance when monotonic retreat is impossible.
+
 - Version 0.1.0 implemented; standalone win-x64 executable and ZIP in artifacts/nmoonfox-desktop-win-x64 and artifacts/nmoonfox-desktop-win-x64.zip. No remote repository has been created for this app.
 - Core independent tests: 13/13 pass. Packaged EXE isolated GUI smoke: 14 checks pass, exit 0. Release verification hashes in artifacts/release-verification.json.
 - Current GUI renders inspected under artifacts/release-smoke. Capture a pet window by matching PetId to actor.Id; Dictionary enumeration order can differ from World.Pets after removing and recreating windows.

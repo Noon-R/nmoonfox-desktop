@@ -31,6 +31,7 @@ public sealed class DesktopController : IDisposable
     private Drawing.Icon? trayIcon;
     private bool disposed;
     private double lastTime;
+    private readonly MouseShakeDetector shakeDetector = new();
 
     public DesktopController(string dataDirectory, bool smoke)
     {
@@ -88,7 +89,14 @@ public sealed class DesktopController : IDisposable
         var now = elapsed.Elapsed.TotalSeconds;
         World.Tick(now - lastTime); lastTime = now;
         var cursor = CursorPosition(); World.ObservePointer(cursor.X, cursor.Y);
+        ProcessPointer(cursor.X, cursor.Y, now, Native.PointerButtonDown() || ControlWindow.IsMouseOver);
         foreach (var window in windows.Values) window.Refresh();
+    }
+    internal int ProcessPointer(double x, double y, double timestamp, bool busy)
+    {
+        if (busy || World.Paused || !World.Settings.YieldToMouse || World.Pets.Any(p => p.State == PetState.Dragged))
+        { shakeDetector.Reset(); return 0; }
+        return shakeDetector.Sample(x, y, timestamp) ? World.MakeSpace(x, y) : 0;
     }
     public Point CursorPosition()
     {

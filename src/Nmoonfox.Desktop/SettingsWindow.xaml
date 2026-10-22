@@ -25,6 +25,7 @@
       <Border Background="White" CornerRadius="18" Padding="20,13" Margin="0,0,0,12">
         <StackPanel>
           <CheckBox x:Name="RoamCheck" Content="画面全体をおさんぽ（オフなら画面の下側）" Click="OptionChanged"/>
+          <CheckBox x:Name="YieldCheck" Content="マウスを振ると、近くの子が道を空ける" Click="OptionChanged"/>
           <CheckBox x:Name="TopCheck" Content="ほかのウィンドウより手前に表示" Click="OptionChanged"/>
           <CheckBox x:Name="ThroughCheck" Content="クリックを通す（作業に集中したいとき）" Click="OptionChanged"/>
         </StackPanel>
@@ -36,10 +37,10 @@
         <Button Content="呼び戻す" Click="GatherClicked" Margin="0,8,0,0"/>
       </WrapPanel>
       <Border Background="#EEE8F8" CornerRadius="12" Padding="14,12" Margin="0,0,0,12">
-        <TextBlock Text="マウスを乗せるとなでられてにっこり。&#x0a;ドラッグで移動、右クリックでメニューを開けます。&#x0a;この画面を閉じても、タスクトレイに残ります。" FontSize="12" LineHeight="21" TextWrapping="Wrap"/>
+        <TextBlock Text="なでるとにっこり。近くでマウスを素早く振ると退避。&#x0a;ドラッグで移動、右クリックでメニューを開けます。&#x0a;この画面を閉じても、タスクトレイに残ります。" FontSize="12" LineHeight="21" TextWrapping="Wrap"/>
       </Border>
       <TextBlock x:Name="StatusLabel" FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,12"/>
-      <DockPanel><TextBlock Text="nmoonfox Desktop 0.1" FontSize="10" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/><Button Content="アプリを終了" Click="ExitClicked" HorizontalAlignment="Right" Margin="0" Padding="12,7"/></DockPanel>
+      <DockPanel><TextBlock Text="nmoonfox Desktop 0.2" FontSize="10" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/><Button Content="アプリを終了" Click="ExitClicked" HorizontalAlignment="Right" Margin="0" Padding="12,7"/></DockPanel>
     </StackPanel>
   </ScrollViewer>
 </Window>

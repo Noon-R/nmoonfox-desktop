@@ -10,6 +10,7 @@ public sealed record PetSettings
     public bool AlwaysOnTop { get; init; } = true;
     public bool RoamEverywhere { get; init; }
     public bool ClickThrough { get; init; }
+    public bool YieldToMouse { get; init; } = true;
 
     public PetSettings Normalize() => this with
     {

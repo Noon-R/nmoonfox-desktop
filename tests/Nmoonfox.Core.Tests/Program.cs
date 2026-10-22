@@ -21,6 +21,12 @@ internal static class Program
             ("animation frames stay inside declared clips", Frames),
             ("pointer cardinal directions and invalid coordinates", PointerDirections),
             ("settings persistence, corruption, and normalization", Persistence),
+            ("intentional horizontal and vertical mouse shakes", MouseShakes),
+            ("ordinary movement and discontinuities do not shake", MouseFalsePositives),
+            ("nearby petting actors make space while distant actors stay", YieldNearby),
+            ("yielding escapes every screen corner without approaching", YieldCorners),
+            ("yielding exclusions, cooldown, and explicit cancellation", YieldLifecycle),
+            ("yielding remains bounded after display and size changes", YieldBounds),
         ];
         var failed = 0;
         foreach (var test in tests)
@@ -251,8 +257,13 @@ internal static class Program
         {
             var path = Path.Combine(folder, "nested", "settings.json"); var store = new SettingsStore(path);
             Check(store.Load() == new PetSettings(), "missing file defaults");
-            var settings = new PetSettings { Count = 7, Size = 200, Speed = 87, AlwaysOnTop = false, RoamEverywhere = true, ClickThrough = true };
+            Check(new PetSettings().YieldToMouse, "mouse yielding enabled by default");
+            var settings = new PetSettings { Count = 7, Size = 200, Speed = 87, AlwaysOnTop = false, RoamEverywhere = true, ClickThrough = true, YieldToMouse = false };
             store.Save(settings); Check(store.Load() == settings, "all settings round-trip");
+            File.WriteAllText(path, "{\"Count\":4,\"Size\":144,\"Speed\":55}");
+            Check(store.Load().Count == 4 && store.Load().YieldToMouse, "legacy settings opt into new default");
+            store.Save(settings with { YieldToMouse = true });
+            Check(store.Load().YieldToMouse, "enabled yielding persists");
             store.Save(settings with { Count = 1 }); Check(store.Load().Count == 1, "replace existing file");
             File.WriteAllText(path, "{ broken JSON"); Check(store.Load() == new PetSettings(), "corruption defaults");
             File.WriteAllText(path, "null"); Check(store.Load() == new PetSettings(), "null defaults");
@@ -268,5 +279,181 @@ internal static class Program
             Check(Path.GetFullPath(folder).StartsWith(testRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "cleanup stays in test artifacts");
             Directory.Delete(folder, true);
         }
+    }
+
+    private static bool Feed(MouseShakeDetector detector, double[] offsets, bool vertical = false,
+        double interval = .05, double start = 0)
+    {
+        var detected = false;
+        for (var i = 0; i < offsets.Length; i++)
+            detected |= detector.Sample(500 + (vertical ? 0 : offsets[i]), 400 + (vertical ? offsets[i] : 0), start + i * interval);
+        return detected;
+    }
+
+    private static void MouseShakes()
+    {
+        double[] shake = [0, 60, 120, 60, 0, 60, 120];
+        Check(Feed(new(), shake), "deliberate horizontal two-reversal shake");
+        Check(Feed(new(), shake, vertical: true), "deliberate vertical two-reversal shake");
+        Check(Feed(new(), [0, 40, 80, 82, 40, 0, -2, 40, 80], interval: 1d / 30),
+            "natural shake can decelerate for one sample at each turning point");
+        foreach (var fps in new[] { 30, 60 })
+            Check(Feed(new(), Enumerable.Range(0, fps).Select(i => Math.Sin(i * 2 * Math.PI * 3 / fps) * 60).ToArray(),
+                interval: 1d / fps), $"smooth hand-like oscillation at {fps} samples/second");
+        var detector = new MouseShakeDetector();
+        Feed(detector, [0, 60, 120, 60, 0]);
+        detector.Reset();
+        Check(!Feed(detector, [0, 60, 120], start: .25), "Reset discards prior reversals");
+        Check(Feed(detector, shake, start: 2), "a later deliberate gesture still works");
+    }
+
+    private static void MouseFalsePositives()
+    {
+        Check(!Feed(new(), Enumerable.Repeat(0d, 40).ToArray()), "stationary pointer");
+        Check(!Feed(new(), [0, 60, 120, 180, 240, 300]), "fast one-way swipe");
+        Check(!Feed(new(), [0, 60, 120, 60, 0]), "one reversal alone");
+        Check(!Feed(new(), [0, 1, -1, 1, -1, 1, -1]), "tiny tremor");
+        Check(!Feed(new(), [0, 60, 120, 60, 0, 60, 120], interval: .3), "slow oscillation");
+        Check(!Feed(new(), Enumerable.Range(0, 30).Select(i => Math.Sin(i * 2 * Math.PI * 3 / 30) * 12).ToArray(),
+            interval: 1d / 30), "slow continuous oscillation at normal polling interval");
+        Check(!Feed(new(), [0, 1600, 0, 1600, 0]), "coordinate warps");
+        foreach (var invalid in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+        {
+            var detector = new MouseShakeDetector();
+            Feed(detector, [0, 60, 120, 60, 0]);
+            Check(!detector.Sample(invalid, 400, .21), "invalid coordinate rejected");
+            Check(!Feed(detector, [0, 60, 120], start: .25), "invalid coordinate resets history");
+            detector.Reset(); Feed(detector, [0, 60, 120, 60, 0]);
+            Check(!detector.Sample(500, 400, invalid), "invalid time rejected");
+            Check(!Feed(detector, [0, 60, 120], start: .25), "invalid time resets history");
+        }
+        foreach (var restart in new[] { 0d, 4d })
+        {
+            var detector = new MouseShakeDetector();
+            Feed(detector, [0, 60, 120, 60, 0]);
+            Check(!Feed(detector, [0, 60, 120], start: restart), "backwards time or long gap clears history");
+        }
+    }
+
+    private static void Place(PetWorld world, PetActor actor, double x, double y)
+    {
+        world.BeginDrag(actor.Id); world.DragTo(actor.Id, x, y); world.EndDrag(actor.Id);
+    }
+
+    private static (double X, double Y) Center(PetWorld world, PetActor actor) =>
+        (actor.X + world.Settings.Size / 2, actor.Y + world.PetHeight / 2);
+
+    private static double Distance(PetWorld world, PetActor actor, double x, double y)
+    {
+        var center = Center(world, actor);
+        return Math.Sqrt(Math.Pow(center.X - x, 2) + Math.Pow(center.Y - y, 2));
+    }
+
+    private static void YieldNearby()
+    {
+        var world = World(2, roam: false); var near = world.Pets[0]; var far = world.Pets[1];
+        Place(world, near, 400, 300); Place(world, far, 1100, 300);
+        var cursor = Center(world, near); cursor.X -= 20;
+        Check(near.State == PetState.Petting, "hover/drag-release reaction precedes shake");
+        Check(world.MakeSpace(cursor.X, cursor.Y) == 1, "only the nearby actor responds");
+        Check(near.IsYielding && !far.IsYielding, "yield flag identifies actor");
+        var previous = Distance(world, near, cursor.X, cursor.Y);
+        var initial = previous;
+        for (var i = 0; i < 90; i++)
+        {
+            world.Pet(near.Id);
+            world.Tick(1d / 30);
+            Check(near.State != PetState.Petting, "petting cannot interrupt making space");
+            var distance = Distance(world, near, cursor.X, cursor.Y);
+            Check(distance + 1e-6 >= previous, "escape never moves closer to gesture point");
+            previous = distance; AssertContained(world);
+        }
+        Check(previous > initial + 100, "escape opens useful working space");
+    }
+
+    private static void YieldCorners()
+    {
+        foreach (var right in new[] { false, true })
+        foreach (var bottom in new[] { false, true })
+        {
+            var world = World(1, roam: false); var actor = world.Pets[0];
+            Place(world, actor, right ? Screen.X + Screen.Width - world.Settings.Size : Screen.X,
+                bottom ? Screen.Y + Screen.Height - world.PetHeight : Screen.Y);
+            var cursor = Center(world, actor);
+            cursor.X += right ? -15 : 15;
+            var start = Distance(world, actor, cursor.X, cursor.Y);
+            Check(world.MakeSpace(cursor.X, cursor.Y) == 1, $"corner escape exists {right}/{bottom}");
+            var previous = start;
+            for (var i = 0; i < 90; i++)
+            {
+                world.Tick(1d / 30); AssertContained(world);
+                var distance = Distance(world, actor, cursor.X, cursor.Y);
+                Check(distance + 1e-6 >= previous, "corner escape never approaches cursor");
+                previous = distance;
+            }
+            Check(previous > start + 100, "corner fallback creates space");
+
+            // At a corner with the cursor diagonally inward, every feasible straight
+            // first step is closer. Choose a tangential escape rather than getting stuck.
+            Place(world, actor, right ? Screen.X + Screen.Width - world.Settings.Size : Screen.X,
+                bottom ? Screen.Y + Screen.Height - world.PetHeight : Screen.Y);
+            cursor = Center(world, actor);
+            cursor.X += right ? -15 : 15; cursor.Y += bottom ? -15 : 15;
+            start = Distance(world, actor, cursor.X, cursor.Y);
+            Check(world.MakeSpace(cursor.X, cursor.Y) == 1, "diagonal corner has a fallback escape");
+            for (var i = 0; i < 90; i++)
+            {
+                world.Tick(1d / 30); AssertContained(world);
+                Check(Distance(world, actor, cursor.X, cursor.Y) > start * .6,
+                    "corner fallback avoids crossing directly over the pointer");
+            }
+            Check(Distance(world, actor, cursor.X, cursor.Y) > start + 100,
+                "diagonal corner fallback ends safely farther away");
+        }
+    }
+
+    private static void YieldLifecycle()
+    {
+        var world = World(1); var actor = world.Pets[0];
+        Place(world, actor, 400, 300); var cursor = Center(world, actor);
+        Check(world.MakeSpace(double.NaN, cursor.Y) == 0 && world.MakeSpace(cursor.X, double.PositiveInfinity) == 0,
+            "invalid gesture position ignored");
+        world.Paused = true; Check(world.MakeSpace(cursor.X, cursor.Y) == 0, "pause excludes yielding"); world.Paused = false;
+        world.ApplySettings(world.Settings with { YieldToMouse = false });
+        Check(world.MakeSpace(cursor.X, cursor.Y) == 0 && !actor.IsYielding, "setting off excludes yielding");
+        world.ApplySettings(world.Settings with { YieldToMouse = true });
+        world.SleepAll(); Check(world.MakeSpace(cursor.X, cursor.Y) == 0, "sleep excludes yielding"); world.WakeAll();
+        world.BeginDrag(actor.Id); Check(world.MakeSpace(cursor.X, cursor.Y) == 0, "drag excludes yielding"); world.EndDrag(actor.Id);
+        Check(world.MakeSpace(cursor.X, cursor.Y) == 1, "wake/release eligible");
+        Check(world.MakeSpace(cursor.X, cursor.Y) == 0, "active retreat does not restart");
+        for (var i = 0; i < 116; i++) world.Tick(.05);
+        Check(actor.IsYielding, "cooldown remains active at 5.8 seconds");
+        cursor = Center(world, actor);
+        Check(world.MakeSpace(cursor.X, cursor.Y) == 0, "arrival does not permit premature retrigger");
+        for (var i = 0; i < 6; i++) world.Tick(.05);
+        Check(!actor.IsYielding, "cooldown ends after six seconds");
+        cursor = Center(world, actor);
+        Check(world.MakeSpace(cursor.X, cursor.Y) == 1, "next gesture can trigger after cooldown");
+        Action[] cancel = [() => world.SleepAll(), () => world.WakeAll(), () => world.Gather(),
+            () => world.BeginDrag(actor.Id), () => world.ApplySettings(world.Settings with { YieldToMouse = false })];
+        foreach (var action in cancel)
+        {
+            world.ApplySettings(world.Settings with { YieldToMouse = true });
+            world.WakeAll(); Place(world, actor, 400, 300); cursor = Center(world, actor);
+            Check(world.MakeSpace(cursor.X, cursor.Y) == 1, "test cancellation begins from retreat");
+            action(); Check(!actor.IsYielding, "explicit action cancels retreat");
+        }
+    }
+
+    private static void YieldBounds()
+    {
+        var world = World(12); world.Gather();
+        foreach (var actor in world.Pets) { var cursor = Center(world, actor); world.MakeSpace(cursor.X, cursor.Y); }
+        world.ApplySettings(world.Settings with { Size = 240 });
+        world.ResizeBounds(new(-1400, -300, 500, 300));
+        for (var i = 0; i < 180; i++) { world.Tick(1d / 30); AssertContained(world); }
+        world.ResizeBounds(new(0, 0, 20, 10));
+        var point = Center(world, world.Pets[0]); world.MakeSpace(point.X, point.Y);
+        for (var i = 0; i < 180; i++) { world.Tick(1d / 30); AssertContained(world); }
     }
 }

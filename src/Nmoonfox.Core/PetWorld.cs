@@ -11,6 +11,7 @@ public sealed class PetActor
     public double StateTime { get; internal set; }
     public double Affection { get; internal set; }
     public int LookDirection { get; internal set; }
+    public bool IsYielding => YieldRemaining > 0;
     public int Frame
     {
         get
@@ -25,6 +26,7 @@ public sealed class PetActor
     internal double TargetY;
     internal double PetCooldown;
     internal bool SleepLocked;
+    internal double YieldRemaining;
 }
 
 public sealed class PetWorld
@@ -53,6 +55,8 @@ public sealed class PetWorld
     public void ApplySettings(PetSettings settings)
     {
         Settings = settings.Normalize();
+        if (!Settings.YieldToMouse)
+            foreach (var actor in pets) CancelYield(actor);
         while (pets.Count > Settings.Count) pets.RemoveAt(pets.Count - 1);
         while (pets.Count < Settings.Count)
         {
@@ -82,7 +86,7 @@ public sealed class PetWorld
     public void Pet(int id)
     {
         var actor = Find(id);
-        if (actor == null || actor.State == PetState.Dragged || actor.State == PetState.Petting || actor.PetCooldown > 0) return;
+        if (actor == null || actor.IsYielding || actor.State == PetState.Dragged || actor.State == PetState.Petting || actor.PetCooldown > 0) return;
         actor.SleepLocked = false;
         actor.PetCooldown = 2.8;
         actor.Affection = 2;
@@ -93,6 +97,7 @@ public sealed class PetWorld
     {
         var actor = Find(id);
         if (actor == null) return;
+        CancelYield(actor);
         actor.SleepLocked = false;
         Enter(actor, PetState.Dragged, double.PositiveInfinity);
     }
@@ -117,6 +122,7 @@ public sealed class PetWorld
     {
         foreach (var actor in pets)
         {
+            CancelYield(actor);
             actor.SleepLocked = true;
             actor.Affection = 0;
             Enter(actor, PetState.Sleep, double.PositiveInfinity);
@@ -125,7 +131,7 @@ public sealed class PetWorld
 
     public void WakeAll()
     {
-        foreach (var actor in pets) { actor.SleepLocked = false; Enter(actor, PetState.Wave, 1.4); }
+        foreach (var actor in pets) { CancelYield(actor); actor.SleepLocked = false; Enter(actor, PetState.Wave, 1.4); }
     }
 
     public void Gather()
@@ -133,6 +139,7 @@ public sealed class PetWorld
         for (var i = 0; i < pets.Count; i++)
         {
             var actor = pets[i];
+            CancelYield(actor);
             actor.X = Bounds.X + AvailableX * (i + 1) / (pets.Count + 1);
             actor.Y = Bounds.Y + AvailableY;
             actor.SleepLocked = false;
@@ -158,22 +165,79 @@ public sealed class PetWorld
         }
     }
 
+    public int MakeSpace(double x, double y)
+    {
+        if (Paused || !Settings.YieldToMouse || !double.IsFinite(x) || !double.IsFinite(y)) return 0;
+        var count = 0;
+        foreach (var actor in pets)
+        {
+            if (actor.IsYielding || actor.State is PetState.Dragged or PetState.Sleep) continue;
+            var centerX = actor.X + Settings.Size / 2;
+            var centerY = actor.Y + PetHeight / 2;
+            var awayX = centerX - x; var awayY = centerY - y;
+            var originalDistance = awayX * awayX + awayY * awayY;
+            var radius = Settings.Size * .65 + 140;
+            if (originalDistance > radius * radius) continue;
+            var retreat = Math.Max(240, Settings.Size * 1.8);
+            var bestScore = originalDistance + 16;
+            var targetX = actor.X; var targetY = actor.Y;
+            var fallbackScore = double.NegativeInfinity;
+            var fallbackX = actor.X; var fallbackY = actor.Y;
+            for (var i = 0; i < 16; i++)
+            {
+                var angle = i * Math.PI / 8;
+                var candidateX = Math.Clamp(actor.X + Math.Cos(angle) * retreat, Bounds.X, Bounds.X + AvailableX);
+                var candidateY = Math.Clamp(actor.Y + Math.Sin(angle) * retreat, Bounds.Y, Bounds.Y + AvailableY);
+                var moveX = candidateX - actor.X; var moveY = candidateY - actor.Y;
+                var movementSquared = moveX * moveX + moveY * moveY;
+                var endX = candidateX + Settings.Size / 2 - x;
+                var endY = candidateY + PetHeight / 2 - y;
+                var score = endX * endX + endY * endY;
+                if (movementSquared < 16 || score <= originalDistance + 16) continue;
+                var projection = moveX * awayX + moveY * awayY;
+                var closestT = Math.Clamp(-projection / movementSquared, 0, 1);
+                var closestSquared = originalDistance + 2 * closestT * projection + closestT * closestT * movementSquared;
+                var clearanceScore = closestSquared * 1000 + score;
+                if (clearanceScore > fallbackScore)
+                { fallbackScore = clearanceScore; fallbackX = candidateX; fallbackY = candidateY; }
+                // Do not cross the cursor while trying to get farther away at an edge.
+                if (projection < -1e-6) continue;
+                if (score <= bestScore) continue;
+                bestScore = score; targetX = candidateX; targetY = candidateY;
+            }
+            if (bestScore <= originalDistance + 16)
+            {
+                // In a boxed-in corner every exit can initially get closer. Prefer
+                // the path with greatest cursor clearance instead of becoming stuck.
+                if (double.IsNegativeInfinity(fallbackScore)) continue;
+                targetX = fallbackX; targetY = fallbackY;
+            }
+            actor.TargetX = targetX; actor.TargetY = targetY;
+            actor.YieldRemaining = 6; actor.PetCooldown = 6; actor.Affection = 0;
+            Enter(actor, targetX < actor.X ? PetState.WalkLeft : PetState.WalkRight, 25);
+            count++;
+        }
+        return count;
+    }
+
     private void Advance(PetActor actor, double delta)
     {
         if (actor.State == PetState.Dragged) return;
         actor.StateTime += delta;
         actor.PetCooldown = Math.Max(0, actor.PetCooldown - delta);
+        actor.YieldRemaining = Math.Max(0, actor.YieldRemaining - delta);
         actor.Affection = Math.Max(0, actor.Affection - delta);
         if (actor.State is PetState.WalkLeft or PetState.WalkRight)
         {
             var dx = actor.TargetX - actor.X;
             var dy = actor.TargetY - actor.Y;
             var distance = Math.Sqrt(dx * dx + dy * dy);
-            var travel = Settings.Speed * delta;
+            var speed = actor.IsYielding ? Math.Clamp(Settings.Speed * 2, 160, 260) : Settings.Speed;
+            var travel = speed * delta;
             if (distance <= travel)
             {
                 actor.X = actor.TargetX; actor.Y = actor.TargetY;
-                Enter(actor, PetState.Idle, 1.5 + random.NextDouble() * 3);
+                Enter(actor, PetState.Idle, actor.IsYielding ? actor.YieldRemaining + .2 : 1.5 + random.NextDouble() * 3);
             }
             else
             {
@@ -182,7 +246,7 @@ public sealed class PetWorld
             }
             Clamp(actor);
         }
-        if (actor.StateTime < actor.Duration) return;
+        if (actor.IsYielding || actor.StateTime < actor.Duration) return;
         var choice = random.NextDouble();
         if (choice < .57) Walk(actor);
         else if (choice < .70) Enter(actor, PetState.Idle, 2 + random.NextDouble() * 3);
@@ -201,6 +265,12 @@ public sealed class PetWorld
 
     private static void Enter(PetActor actor, PetState state, double duration)
     { actor.State = state; actor.StateTime = 0; actor.Duration = duration; }
+    private static void CancelYield(PetActor actor)
+    {
+        if (!actor.IsYielding) return;
+        actor.YieldRemaining = 0; actor.PetCooldown = 0;
+        Enter(actor, PetState.Idle, 1.5);
+    }
     private PetActor? Find(int id) => pets.Find(p => p.Id == id);
     private double AvailableX => Math.Max(0, Bounds.Width - Settings.Size);
     private double AvailableY => Math.Max(0, Bounds.Height - PetHeight);

@@ -17,6 +17,7 @@ public sealed class PetWindow : Window
     private Point dragOffset;
     private bool dragging;
     private HwndSource? source;
+    private bool? appliedClickThrough;
     public int PetId => actor.Id;
 
     public PetWindow(DesktopController owner, PetActor actor)
@@ -79,14 +80,18 @@ public sealed class PetWindow : Window
         var dx = pointer.X - actor.X - Width / 2;
         var dy = pointer.Y - actor.Y - Height / 2;
         visual.WatchCursor = dx * dx + dy * dy < 320 * 320;
+        UpdateInputStyle();
         visual.InvalidateVisual();
     }
     public void UpdateInputStyle()
     {
         if (source == null) return;
+        var clickThrough = owner.World.Settings.ClickThrough || actor.IsYielding;
+        if (appliedClickThrough == clickThrough) return;
         var style = Native.GetWindowLongPtr(source.Handle, Native.ExtendedStyle).ToInt64() | Native.NoActivate | Native.ToolWindow;
-        style = owner.World.Settings.ClickThrough ? style | Native.Transparent : style & ~Native.Transparent;
+        style = clickThrough ? style | Native.Transparent : style & ~Native.Transparent;
         Native.SetWindowLongPtr(source.Handle, Native.ExtendedStyle, new IntPtr(style));
+        appliedClickThrough = clickThrough;
     }
     private IntPtr MessageHook(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {

@@ -33,6 +33,18 @@ SettingsStore(string path), Load()->PetSettings, Save(PetSettings)。
 3. 設定画面と永続化、sleep/breath/hearts、終了/単一起動。
 4. 独立レビュー、Coreテスト、GUI smoke（設定変更、個体数、描画、終了）、自立実行版のビルドと起動確認。
 
+## 0.2: マウスを振って道を空ける
+
+- 通常の移動・静止・単発の素早い移動では反応せず、約0.65秒以内の速い切り返し2回と十分な移動量で認識。単位はDIP。30Hzの既存ポインター取得を使用し、グローバル入力フックは追加しない。
+- 設定 `YieldToMouse` は初期値true、保存する。設定画面操作中・マウスボタン押下中・休憩中は検出をリセット。
+- Core `MouseShakeDetector.Sample(double x,double y,double timestamp)` -> bool、`Reset()`。時刻は単調増加秒。無効値、時間飛び、座標ワープは検出履歴を破棄する。
+- Core `PetWorld.MakeSpace(double x,double y)` -> 反応個体数。近くの起きている個体が対象。Hoverが先に発火してPetting中でも退避を優先。Dragged/Sleep/休憩/設定OFFは除外。`PetActor.IsYielding` で状態を公開。
+- 有効な作業領域内の候補から、カーソルへ近づく軌道を避けつつ遠ざかる位置を選ぶ。端では横や上へ逃がす。画面下部モードでも退避時のみ上への移動を許す。
+- 既存歩行モーションで早足に退避。合計6秒は再退避やなでられを抑制し、到着後は待機。退避中は一時的にクリックを通す。その後は通常動作に戻る。
+- お昼寝/起こす/呼び戻す/明示的なドラッグ/設定OFFで退避状態を解除。純粋Coreテスト、独立レビュー、GUI経由検出テスト、配布EXEの検証を行う。
+
+切り返しの自然な減速を認識するため、0.12秒以下の短い低速サンプルは保持する。角でどの方向も初めはカーソルに近づいてしまう場合のみ、移動線分上でカーソルと最も距離を保てる候補を使い、隅で動けなくなるのを防ぐ。
+
 ## 参照
 
 - https://learn.microsoft.com/en-us/dotnet/api/system.windows.window.allowstransparency

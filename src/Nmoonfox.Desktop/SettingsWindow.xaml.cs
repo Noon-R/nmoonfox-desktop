@@ -30,6 +30,7 @@ public partial class SettingsWindow : Window
         var settings = owner.World.Settings;
         CountSlider.Value = settings.Count; SizeSlider.Value = settings.Size; SpeedSlider.Value = settings.Speed;
         RoamCheck.IsChecked = settings.RoamEverywhere; TopCheck.IsChecked = settings.AlwaysOnTop; ThroughCheck.IsChecked = settings.ClickThrough;
+        YieldCheck.IsChecked = settings.YieldToMouse;
         CountLabel.Text = $"{settings.Count} 匹"; SizeLabel.Text = $"{settings.Size / 144:0.0} 倍";
         SpeedLabel.Text = settings.Speed < 45 ? "ゆっくり" : settings.Speed > 90 ? "元気に" : "のんびり";
         PopulationLabel.Text = owner.World.Paused ? "いまは、ひとやすみ中" : $"{settings.Count} 匹がいっしょに過ごしています";
@@ -46,7 +47,7 @@ public partial class SettingsWindow : Window
         {
             Count = (int)CountSlider.Value, Size = SizeSlider.Value, Speed = SpeedSlider.Value,
             AlwaysOnTop = TopCheck.IsChecked == true, RoamEverywhere = RoamCheck.IsChecked == true,
-            ClickThrough = ThroughCheck.IsChecked == true
+            ClickThrough = ThroughCheck.IsChecked == true, YieldToMouse = YieldCheck.IsChecked == true
         });
     }
     private void PauseClicked(object sender, RoutedEventArgs e) => owner.TogglePause();

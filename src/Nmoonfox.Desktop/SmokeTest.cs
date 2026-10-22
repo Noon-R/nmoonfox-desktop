@@ -61,6 +61,23 @@ internal static class SmokeTest
             controller.World.DragTo(actor.Id, -100000, -100000);
             controller.World.EndDrag(actor.Id);
             Require(actor.X >= controller.World.Bounds.X && actor.Y >= controller.World.Bounds.Y, "Dragging remains in work area", checks);
+            controller.World.Gather();
+            controller.World.Paused = false;
+            var shakeX = actor.X + controller.World.Settings.Size / 2;
+            var shakeY = actor.Y + controller.World.PetHeight / 2;
+            var offsets = new double[] { -60, 0, 60, 0, -60, 0, 60 };
+            var yielded = 0;
+            for (var i = 0; i < offsets.Length; i++)
+                yielded += controller.ProcessPointer(shakeX + offsets[i], shakeY, 1000 + i * .05, false);
+            Require(yielded > 0 && actor.IsYielding, "Pointer shake through controller makes a nearby pet yield", checks);
+            controller.World.Paused = true;
+            pettingWindow.Refresh();
+            var yieldingStyle = Native.GetWindowLongPtr(new WindowInteropHelper(pettingWindow).Handle, Native.ExtendedStyle).ToInt64();
+            Require((yieldingStyle & Native.Transparent) != 0, "Yielding temporarily passes clicks through", checks);
+            controller.ChangeSettings(controller.World.Settings with { YieldToMouse = false });
+            Require(!actor.IsYielding && controller.ControlWindow.YieldCheck.IsChecked == false, "Disabling yielding restores normal state and control", checks);
+            var restoredStyle = Native.GetWindowLongPtr(new WindowInteropHelper(pettingWindow).Handle, Native.ExtendedStyle).ToInt64();
+            Require((restoredStyle & Native.Transparent) == 0, "Disabling yielding restores pet interaction", checks);
             controller.ControlWindow.Close();
             Require(!controller.ControlWindow.IsVisible && controller.Windows.Count == 3, "Closing settings leaves pets running", checks);
             controller.ShowSettings();

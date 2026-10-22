@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><Nullable>enable</Nullable>
     <AssemblyName>nmoonfox-desktop</AssemblyName><RootNamespace>Nmoonfox.Desktop</RootNamespace>
-    <Version>0.1.0</Version><ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.2.0</Version><ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- WPF owns DPI awareness through the manifest; WinForms is only used for NotifyIcon. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
