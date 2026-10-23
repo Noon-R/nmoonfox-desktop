@@ -12,6 +12,7 @@ public static class AnimationCatalog
         PetState.WalkLeft => new(2, 8, 9),
         PetState.Wave => new(3, 4, 5),
         PetState.Petting => new(4, 5, 4),
+        PetState.Dragged => new(6, 6, 5),
         PetState.Curious => new(6, 6, 5),
         PetState.Thinking => new(7, 6, 5),
         PetState.Review => new(8, 6, 5),

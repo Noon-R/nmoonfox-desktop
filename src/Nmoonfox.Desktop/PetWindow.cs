@@ -30,20 +30,21 @@ public sealed class PetWindow : Window
         SourceInitialized += (_, _) =>
         {
             source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
-            source?.AddHook(MessageHook); UpdateInputStyle();
+            source?.AddHook(MessageHook); UpdateInputStyle(); Refresh();
         };
         MouseEnter += (_, _) => { if (!owner.World.Settings.ClickThrough) owner.World.Pet(actor.Id); };
         MouseLeftButtonDown += (_, e) =>
         {
             if (owner.World.Settings.ClickThrough) return;
-            dragOffset = e.GetPosition(this); dragging = true;
+            var point = e.GetPosition(this);
+            dragOffset = new Point(point.X / ActualWidth, point.Y / ActualHeight); dragging = true;
             owner.World.BeginDrag(actor.Id); CaptureMouse(); e.Handled = true;
         };
         MouseMove += (_, _) =>
         {
             if (!dragging) return;
             var point = owner.CursorPosition();
-            owner.World.DragTo(actor.Id, point.X - dragOffset.X, point.Y - dragOffset.Y);
+            owner.World.DragPointer(actor.Id, point.X, point.Y, dragOffset.X, dragOffset.Y);
             Refresh();
         };
         MouseLeftButtonUp += (_, e) => { FinishDrag(); e.Handled = true; };
@@ -62,7 +63,8 @@ public sealed class PetWindow : Window
         }
         Add("なでる", () => owner.World.Pet(actor.Id));
         Add("設定を開く", owner.ShowSettings);
-        Add("みんなを呼び戻す", owner.World.Gather);
+        Add("この画面に集める", owner.GatherHere);
+        Add("各画面に分ける", owner.Spread);
         Add("この子をおやすみさせる（表示から外す）", () => owner.Remove(actor.Id));
         return menu;
     }
@@ -74,12 +76,27 @@ public sealed class PetWindow : Window
     public void Refresh()
     {
         var settings = owner.World.Settings;
-        Width = settings.Size; Height = owner.World.PetHeight;
-        Left = actor.X; Top = actor.Y; Topmost = settings.AlwaysOnTop;
+        var world = owner.World;
+        var display = world.DisplayFor(actor);
+        Width = world.WidthFor(actor) / display.Scale; Height = world.HeightFor(actor) / display.Scale;
+        Topmost = settings.AlwaysOnTop;
+        visual.LogicalSize = settings.Size;
+        if (source != null)
+        {
+            // HWND coordinates are physical pixels. Never assign virtual-desktop pixels to WPF Left/Top (DIPs).
+            var width = Math.Max(1, (int)Math.Floor(world.WidthFor(actor)));
+            var height = Math.Max(1, (int)Math.Floor(world.HeightFor(actor)));
+            var x = (int)Math.Clamp(Math.Round(actor.X), display.WorkArea.X, display.WorkArea.X + display.WorkArea.Width - width);
+            var y = (int)Math.Clamp(Math.Round(actor.Y), display.WorkArea.Y, display.WorkArea.Y + display.WorkArea.Height - height);
+            if (!Native.GetWindowRect(source.Handle, out var rect) || rect.Left != x || rect.Top != y ||
+                rect.Right - rect.Left != width || rect.Bottom - rect.Top != height)
+                Native.SetWindowPos(source.Handle, IntPtr.Zero, x, y, width, height, 0x14);
+        }
         var pointer = owner.CursorPosition();
-        var dx = pointer.X - actor.X - Width / 2;
-        var dy = pointer.Y - actor.Y - Height / 2;
-        visual.WatchCursor = dx * dx + dy * dy < 320 * 320;
+        var dx = pointer.X - actor.X - world.WidthFor(actor) / 2;
+        var dy = pointer.Y - actor.Y - world.HeightFor(actor) / 2;
+        var watchDistance = 320 * world.ScaleFor(actor);
+        visual.WatchCursor = dx * dx + dy * dy < watchDistance * watchDistance;
         UpdateInputStyle();
         visual.InvalidateVisual();
     }
@@ -107,22 +124,35 @@ public sealed class PetWindow : Window
 public sealed class PetVisual(SpriteLibrary library, PetActor actor) : FrameworkElement
 {
     public bool WatchCursor { get; set; }
+    public double LogicalSize { get; set; } = 144;
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
-        var width = ActualWidth;
-        if (width <= 0) return;
+        if (ActualWidth <= 0) return;
+        var width = LogicalSize;
+        var fit = ActualWidth / width;
+        dc.PushTransform(new ScaleTransform(fit, fit));
         var height = width * 208 / 192;
         var asleep = actor.State == PetState.Sleep;
+        var dragged = actor.State == PetState.Dragged;
         var walking = actor.State is PetState.WalkLeft or PetState.WalkRight;
         var breathing = Math.Sin(actor.StateTime * 2.2 + actor.Id) * (asleep ? .012 : .004);
         var bob = walking ? -Math.Abs(Math.Sin(actor.StateTime * 9 * Math.PI / 4)) * 1.1 : 0;
+        if (dragged)
+        {
+            // Inset rotation keeps ears and crescent tail inside the transparent window.
+            var centerY = 24 + height / 2;
+            dc.PushTransform(new TranslateTransform(0, -6 - Math.Sin(actor.StateTime * 4) * 2));
+            dc.PushTransform(new RotateTransform(actor.DragTilt + Math.Sin(actor.StateTime * 3.6) * 1.5, width / 2, centerY));
+            dc.PushTransform(new ScaleTransform(.86, .86, width / 2, centerY));
+        }
         dc.PushTransform(new ScaleTransform(1, 1 + breathing, width / 2, height + 24));
         var image = asleep ? library.Sleeping :
             actor.State == PetState.Idle && WatchCursor && actor.StateTime > 1.2
                 ? library.Look(actor.LookDirection) : library.Frame(actor.State, actor.Frame);
         dc.DrawImage(image, new Rect(0, 24 + bob, width, height));
         dc.Pop();
+        if (dragged) { dc.Pop(); dc.Pop(); dc.Pop(); }
         if (asleep)
         {
             Text(dc, "z z", width * .52, 9 + Math.Sin(actor.StateTime) * 2, 15, Color.FromRgb(142, 127, 186));
@@ -135,6 +165,7 @@ public sealed class PetVisual(SpriteLibrary library, PetActor actor) : Framework
             Text(dc, "♥", width * .61, 23 - progress * 13, 12, Color.FromRgb(240, 175, 188));
             dc.Pop();
         }
+        dc.Pop();
     }
     private void Text(DrawingContext dc, string text, double x, double y, double size, Color color)
     {

@@ -25,6 +25,7 @@ public sealed class DesktopController : IDisposable
     private readonly SettingsStore store;
     private readonly DispatcherTimer clock = new() { Interval = TimeSpan.FromMilliseconds(1000.0 / 30) };
     private readonly DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private readonly DispatcherTimer displayTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly Stopwatch elapsed = new();
     private readonly bool smoke;
     private Forms.NotifyIcon? tray;
@@ -32,23 +33,28 @@ public sealed class DesktopController : IDisposable
     private bool disposed;
     private double lastTime;
     private readonly MouseShakeDetector shakeDetector = new();
+    private string? pointerDisplay;
+    private double pointerScale;
 
     public DesktopController(string dataDirectory, bool smoke)
     {
         this.smoke = smoke;
         store = new SettingsStore(Path.Combine(dataDirectory, "settings.json"));
-        World = new PetWorld(CurrentBounds(), smoke ? new PetSettings() : store.Load(), Environment.TickCount);
+        World = new PetWorld(DisplayCatalog.Read(), smoke ? new PetSettings() : store.Load(), Environment.TickCount);
         clock.Tick += (_, _) => Tick();
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); Save(); };
         SystemParameters.StaticPropertyChanged += DisplayChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplaysChanged;
+        displayTimer.Tick += (_, _) => RefreshDisplays();
     }
     public void Start()
     {
         ControlWindow = new SettingsWindow(this);
+        ControlWindow.DpiChanged += (_, _) => ControlWindow.Dispatcher.BeginInvoke(KeepSettingsVisible);
         CreateTray();
         Synchronize();
         ControlWindow.Show();
-        elapsed.Start(); clock.Start();
+        elapsed.Start(); clock.Start(); displayTimer.Start();
     }
     public void ChangeSettings(PetSettings settings)
     {
@@ -63,7 +69,16 @@ public sealed class DesktopController : IDisposable
     }
     public void ShowSettings()
     {
-        ControlWindow.Show(); ControlWindow.WindowState = WindowState.Normal; ControlWindow.Activate();
+        ControlWindow.Show(); ControlWindow.WindowState = WindowState.Normal; KeepSettingsVisible(); ControlWindow.Activate();
+    }
+    public void GatherHere()
+    {
+        var cursor = CursorPosition(); World.Gather(World.DisplayAt(cursor.X, cursor.Y).Id);
+        foreach (var window in windows.Values) window.Refresh();
+    }
+    public void Spread()
+    {
+        World.Spread(); foreach (var window in windows.Values) window.Refresh();
     }
     public void Exit() { Save(); System.Windows.Application.Current.Shutdown(); }
     public void Save()
@@ -96,24 +111,60 @@ public sealed class DesktopController : IDisposable
     {
         if (busy || World.Paused || !World.Settings.YieldToMouse || World.Pets.Any(p => p.State == PetState.Dragged))
         { shakeDetector.Reset(); return 0; }
-        return shakeDetector.Sample(x, y, timestamp) ? World.MakeSpace(x, y) : 0;
+        var display = World.DisplayAt(x, y);
+        if (pointerDisplay != display.Id || pointerScale != display.Scale)
+        { shakeDetector.Reset(); pointerDisplay = display.Id; pointerScale = display.Scale; }
+        return shakeDetector.Sample((x - display.WorkArea.X) / display.Scale, (y - display.WorkArea.Y) / display.Scale, timestamp)
+            ? World.MakeSpace(x, y) : 0;
     }
     public Point CursorPosition()
     {
         if (!Native.GetCursorPos(out var p)) return new Point(-10000, -10000);
-        var scale = Native.GetDpiForSystem() / 96.0;
-        return new Point(p.X / scale, p.Y / scale);
+        return new Point(p.X, p.Y);
     }
-    private static DesktopBounds CurrentBounds()
+    internal void RefreshDisplays()
     {
-        var area = SystemParameters.WorkArea;
-        return new DesktopBounds(area.X, area.Y, area.Width, area.Height);
+        if (disposed) return;
+        IReadOnlyList<DesktopDisplay> displays;
+        try { displays = DisplayCatalog.Read(); }
+        catch (InvalidOperationException) { return; } // Retain last known topology during a transient switch.
+        if (displays.Count == World.Displays.Count && displays.All(d => World.Displays.Contains(d))) return;
+        World.ResizeDisplays(displays); shakeDetector.Reset(); pointerDisplay = null;
+        foreach (var window in windows.Values) window.Refresh();
+        KeepSettingsVisible(); Changed?.Invoke();
+    }
+    private void KeepSettingsVisible()
+    {
+        if (ControlWindow == null || !ControlWindow.IsVisible) return;
+        var handle = new System.Windows.Interop.WindowInteropHelper(ControlWindow).Handle;
+        if (!Native.GetWindowRect(handle, out var rect)) return;
+        // Keep the title bar reachable even after removing a monitor. Include displays outside pet scope.
+        var display = World.Displays.MinBy(d =>
+        {
+            var b = d.WorkArea;
+            var dx = Math.Max(b.X - rect.Left, Math.Max(0, rect.Left - b.X - b.Width));
+            var dy = Math.Max(b.Y - rect.Top, Math.Max(0, rect.Top - b.Y - b.Height));
+            return dx * dx + dy * dy;
+        })!;
+        var area = display.WorkArea;
+        ControlWindow.MinWidth = Math.Min(490, area.Width / display.Scale);
+        ControlWindow.MinHeight = Math.Min(620, area.Height / display.Scale);
+        ControlWindow.Width = Math.Min(ControlWindow.Width, area.Width / display.Scale);
+        ControlWindow.Height = Math.Min(ControlWindow.Height, area.Height / display.Scale);
+        var width = Math.Min(rect.Right - rect.Left, area.Width);
+        var height = Math.Min(rect.Bottom - rect.Top, area.Height);
+        Native.SetWindowPos(handle, IntPtr.Zero,
+            (int)Math.Clamp(rect.Left, area.X, area.X + Math.Max(0, area.Width - width)),
+            (int)Math.Clamp(rect.Top, area.Y, area.Y + Math.Max(0, area.Height - height)),
+            (int)width, (int)height, 0x14); // NOZORDER | NOACTIVATE
     }
     private void DisplayChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (disposed) return;
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(() => World.ResizeBounds(CurrentBounds()));
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(RefreshDisplays);
     }
+    private void DisplaysChanged(object? sender, EventArgs e)
+    { if (!disposed) System.Windows.Application.Current.Dispatcher.BeginInvoke(RefreshDisplays); }
     private void CreateTray()
     {
         using var bitmap = new Drawing.Bitmap(32, 32);
@@ -136,7 +187,8 @@ public sealed class DesktopController : IDisposable
         through.Click += (_, _) => ChangeSettings(World.Settings with { ClickThrough = through.Checked });
         Changed += () => through.Checked = World.Settings.ClickThrough;
         menu.Items.Add(through);
-        menu.Items.Add("みんなを呼び戻す", null, (_, _) => World.Gather());
+        menu.Items.Add("この画面に集める", null, (_, _) => GatherHere());
+        menu.Items.Add("各画面に分ける", null, (_, _) => Spread());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("終了", null, (_, _) => Exit());
         tray = new Forms.NotifyIcon { Icon = trayIcon, Text = "nmoonfox — 月のきつねたち", ContextMenuStrip = menu, Visible = true };
@@ -145,8 +197,9 @@ public sealed class DesktopController : IDisposable
     public void Dispose()
     {
         if (disposed) return;
-        disposed = true; clock.Stop(); saveTimer.Stop();
+        disposed = true; clock.Stop(); saveTimer.Stop(); displayTimer.Stop();
         SystemParameters.StaticPropertyChanged -= DisplayChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= DisplaysChanged;
         if (tray != null) { tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); }
         trayIcon?.Dispose();
         foreach (var window in windows.Values.ToArray()) window.Close();

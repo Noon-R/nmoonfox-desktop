@@ -25,6 +25,9 @@ internal static class SmokeTest
             controller.World.Paused = true;
             Require(controller.Windows.Count == 3, "Default three pet windows", checks);
             Require(controller.TrayVisible, "Tray icon created", checks);
+            File.WriteAllText(Path.Combine(output, "displays.json"), JsonSerializer.Serialize(controller.World.Displays));
+            Require(controller.World.Displays.Count > 0 && controller.ControlWindow.DisplaysCheck.IsChecked == true,
+                "Physical displays enumerated with all-displays default", checks);
             Capture(controller.ControlWindow, Path.Combine(output, "settings.png"));
             var foreground = Native.GetForegroundWindow();
             controller.ControlWindow.CountSlider.Value = 12;
@@ -60,15 +63,44 @@ internal static class SmokeTest
             controller.World.BeginDrag(actor.Id);
             controller.World.DragTo(actor.Id, -100000, -100000);
             controller.World.EndDrag(actor.Id);
-            Require(actor.X >= controller.World.Bounds.X && actor.Y >= controller.World.Bounds.Y, "Dragging remains in work area", checks);
+            var area = controller.World.DisplayFor(actor).WorkArea;
+            Require(actor.X >= area.X && actor.Y >= area.Y, "Dragging remains in assigned work area", checks);
+            foreach (var display in controller.World.Displays)
+            {
+                controller.World.BeginDrag(actor.Id);
+                controller.World.DragPointer(actor.Id, display.WorkArea.X + display.WorkArea.Width / 2,
+                    display.WorkArea.Y + display.WorkArea.Height / 2, .5, .5);
+                controller.World.Tick(.2);
+                pettingWindow.Refresh();
+                await Task.Delay(100);
+                pettingWindow.Refresh();
+                var handle = new WindowInteropHelper(pettingWindow).Handle;
+                Require(Native.GetWindowRect(handle, out var rect) &&
+                    Math.Abs(rect.Left - actor.X) <= 1 && Math.Abs(rect.Top - actor.Y) <= 1 &&
+                    Math.Abs(rect.Right - rect.Left - controller.World.WidthFor(actor)) <= 1 &&
+                    Math.Abs(rect.Bottom - rect.Top - controller.World.HeightFor(actor)) <= 1,
+                    "Native window placement and size on " + display.Id, checks);
+                Require(Math.Abs(Native.GetDpiForWindow(handle) / 96.0 - display.Scale) < .01,
+                    "Window DPI matches display on " + display.Id, checks);
+                Require(actor.StateTime > 0 && actor.Frame > 0, "Held pet animates while roaming is paused", checks);
+                Capture(pettingWindow, Path.Combine(output, "dragging-" + checks.Count + ".png"));
+                controller.World.EndDrag(actor.Id);
+            }
+            controller.ChangeSettings(controller.World.Settings with { UseAllDisplays = false });
+            Require(controller.World.Pets.All(p => p.DisplayId == controller.World.Displays[0].Id) &&
+                controller.ControlWindow.DisplaysCheck.IsChecked == false, "Primary-only setting gathers pets", checks);
+            controller.ChangeSettings(controller.World.Settings with { UseAllDisplays = true });
+            controller.Spread();
+            Require(controller.World.Pets.Select(p => p.DisplayId).Distinct().Count() ==
+                Math.Min(controller.World.Pets.Count, controller.World.Displays.Count), "Spread uses available displays", checks);
             controller.World.Gather();
             controller.World.Paused = false;
-            var shakeX = actor.X + controller.World.Settings.Size / 2;
-            var shakeY = actor.Y + controller.World.PetHeight / 2;
+            var shakeX = actor.X + controller.World.WidthFor(actor) / 2;
+            var shakeY = actor.Y + controller.World.HeightFor(actor) / 2;
             var offsets = new double[] { -60, 0, 60, 0, -60, 0, 60 };
             var yielded = 0;
             for (var i = 0; i < offsets.Length; i++)
-                yielded += controller.ProcessPointer(shakeX + offsets[i], shakeY, 1000 + i * .05, false);
+                yielded += controller.ProcessPointer(shakeX + offsets[i] * controller.World.ScaleFor(actor), shakeY, 1000 + i * .05, false);
             Require(yielded > 0 && actor.IsYielding, "Pointer shake through controller makes a nearby pet yield", checks);
             controller.World.Paused = true;
             pettingWindow.Refresh();

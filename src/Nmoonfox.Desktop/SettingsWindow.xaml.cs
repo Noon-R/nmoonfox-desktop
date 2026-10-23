@@ -31,6 +31,9 @@ public partial class SettingsWindow : Window
         CountSlider.Value = settings.Count; SizeSlider.Value = settings.Size; SpeedSlider.Value = settings.Speed;
         RoamCheck.IsChecked = settings.RoamEverywhere; TopCheck.IsChecked = settings.AlwaysOnTop; ThroughCheck.IsChecked = settings.ClickThrough;
         YieldCheck.IsChecked = settings.YieldToMouse;
+        DisplaysCheck.IsChecked = settings.UseAllDisplays;
+        DisplaysLabel.Text = $"{owner.World.Displays.Count} 画面を検出 · 合計 {settings.Count} 匹" +
+            (settings.UseAllDisplays ? " · ドラッグで別の画面へ移動できます" : " · メイン画面のみ");
         CountLabel.Text = $"{settings.Count} 匹"; SizeLabel.Text = $"{settings.Size / 144:0.0} 倍";
         SpeedLabel.Text = settings.Speed < 45 ? "ゆっくり" : settings.Speed > 90 ? "元気に" : "のんびり";
         PopulationLabel.Text = owner.World.Paused ? "いまは、ひとやすみ中" : $"{settings.Count} 匹がいっしょに過ごしています";
@@ -47,13 +50,15 @@ public partial class SettingsWindow : Window
         {
             Count = (int)CountSlider.Value, Size = SizeSlider.Value, Speed = SpeedSlider.Value,
             AlwaysOnTop = TopCheck.IsChecked == true, RoamEverywhere = RoamCheck.IsChecked == true,
-            ClickThrough = ThroughCheck.IsChecked == true, YieldToMouse = YieldCheck.IsChecked == true
+            ClickThrough = ThroughCheck.IsChecked == true, YieldToMouse = YieldCheck.IsChecked == true,
+            UseAllDisplays = DisplaysCheck.IsChecked == true
         });
     }
     private void PauseClicked(object sender, RoutedEventArgs e) => owner.TogglePause();
     private void SleepClicked(object sender, RoutedEventArgs e) { owner.World.SleepAll(); }
     private void WakeClicked(object sender, RoutedEventArgs e) => owner.World.WakeAll();
-    private void GatherClicked(object sender, RoutedEventArgs e) => owner.World.Gather();
+    private void GatherClicked(object sender, RoutedEventArgs e) => owner.GatherHere();
+    private void SpreadClicked(object sender, RoutedEventArgs e) => owner.Spread();
     private void ExitClicked(object sender, RoutedEventArgs e) => owner.Exit();
     public void AllowClose() { closing = true; owner.Changed -= Refresh; Close(); }
     protected override void OnClosing(CancelEventArgs e)

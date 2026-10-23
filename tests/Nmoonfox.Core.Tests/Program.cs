@@ -9,6 +9,7 @@ internal static class Program
         (string Name, Action Test)[] tests =
         [
             ("settings defaults and normalization", Normalize),
+            ("multi-monitor independent regression suite", MultiMonitorTests.Run),
             ("zero through twelve pets and independent identities", Counts),
             ("same seed and inputs produce same simulation", Determinism),
             ("30fps and 60fps elapsed-time consistency", FrameRate),
@@ -161,11 +162,11 @@ internal static class Program
 
     private static void AssertContained(PetWorld world)
     {
-        var bounds = world.Bounds;
-        var maxX = bounds.X + Math.Max(0, bounds.Width - world.Settings.Size);
-        var maxY = bounds.Y + Math.Max(0, bounds.Height - (world.Settings.Size * 208d / 192 + 24));
         foreach (var pet in world.Pets)
         {
+            var bounds = world.DisplayFor(pet).WorkArea;
+            var maxX = bounds.X + Math.Max(0, bounds.Width - world.WidthFor(pet));
+            var maxY = bounds.Y + Math.Max(0, bounds.Height - world.HeightFor(pet));
             Check(double.IsFinite(pet.X) && pet.X >= bounds.X - 1e-7 && pet.X <= maxX + 1e-7, $"X in bounds ({pet.X}, {bounds.X}..{maxX})");
             Check(double.IsFinite(pet.Y) && pet.Y >= bounds.Y - 1e-7 && pet.Y <= maxY + 1e-7, $"Y in bounds ({pet.Y}, {bounds.Y}..{maxY})");
             Check(double.IsFinite(pet.StateTime) && double.IsFinite(pet.Affection), "finite actor clocks");
